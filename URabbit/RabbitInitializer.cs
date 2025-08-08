@@ -1,6 +1,8 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using RabbitMQ.Client;
 using System;
+using System.Collections.Generic;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using URabbit.Config;
 
@@ -8,6 +10,7 @@ namespace URabbit
 {
     public static class RabbitInitializer
     {
+
         // --- DI: Asynchronicznie ---
         public static async Task InitRabbitAsync(IServiceProvider provider)
         {
@@ -40,17 +43,42 @@ namespace URabbit
 
             await rabbitManager.InitAsync();
 
-            foreach (var queue in config.QueuesToRegister)
+            using (var channel = await rabbitManager.CreateAsyncChannel())
             {
-                //TODO Przetestować czy channel nie moze byc robiony dla całego foreach zamiast za kazdym razem nowy
-                using (var channel = await rabbitManager.CreateAsyncChannel())
+                foreach (var queue in config.QueuesToRegister)
+                {
+                    var mainQueueName = queue.QueueName;
+                    var dlqName = $"{mainQueueName}.DLQ";
+
+                    // Tworzymy DLQ (jeśli nie istnieje)
                     await channel.QueueDeclareAsync(
-                        queue: queue.QueueName,
+                        queue: dlqName,
+                        durable: true,
+                        exclusive: false,
+                        autoDelete: false,
+                        arguments: null
+                    );
+
+                    // Kopiujemy argumenty z konfiguracji, jeśli są
+                    var mainQueueArgs = queue.Arguments != null
+                        ? new Dictionary<string, object>(queue.Arguments)
+                        : new Dictionary<string, object>();
+
+                    // Dodajemy konfigurację DLQ
+                    mainQueueArgs["x-dead-letter-exchange"] = ""; // domyślny exchange
+                    mainQueueArgs["x-dead-letter-routing-key"] = dlqName;
+
+                    // Tworzymy kolejkę główną
+                    await channel.QueueDeclareAsync(
+                        queue: mainQueueName,
                         durable: queue.Durable,
                         exclusive: queue.Exclusive,
                         autoDelete: queue.AutoDelete,
-                        arguments: queue.Arguments
+                        arguments: mainQueueArgs
                     );
+
+                    Console.WriteLine($"[Rabbit] Kolejka '{mainQueueName}' została zarejestrowana z DLQ '{dlqName}'.");
+                }
             }
         }
 
@@ -62,19 +90,46 @@ namespace URabbit
 
             rabbitManager.Init();
 
-            foreach (var queue in config.QueuesToRegister)
+            using (var channel = rabbitManager.CreateChannel())
             {
-                using (var channel = rabbitManager.CreateChannel())
+                foreach (var queue in config.QueuesToRegister)
+                {
+                    // Nazwa głównej kolejki
+                    var mainQueueName = queue.QueueName;
+
+                    // Nazwa DLQ
+                    var dlqName = $"{mainQueueName}.DLQ";
+
+                    // Tworzymy DLQ
                     _ = channel.QueueDeclareAsync(
-                        queue: queue.QueueName,
+                        queue: dlqName,
+                        durable: true,
+                        exclusive: false,
+                        autoDelete: false,
+                        arguments: null
+                    ).Result;
+
+                    // Argumenty z konfiguracji + DLQ binding
+                    var mainQueueArgs = queue.Arguments != null
+                        ? new Dictionary<string, object>(queue.Arguments)
+                        : new Dictionary<string, object>();
+
+                    mainQueueArgs["x-dead-letter-exchange"] = ""; // default direct exchange
+                    mainQueueArgs["x-dead-letter-routing-key"] = dlqName;
+
+                    // Tworzymy kolejkę główną z podpiętym DLQ
+                    _ = channel.QueueDeclareAsync(
+                        queue: mainQueueName,
                         durable: queue.Durable,
                         exclusive: queue.Exclusive,
                         autoDelete: queue.AutoDelete,
-                        arguments: queue.Arguments
+                        arguments: mainQueueArgs
                     ).Result;
+
+                    Console.WriteLine($"[Rabbit] Kolejka '{mainQueueName}' z DLQ '{dlqName}' została zarejestrowana.");
+                }
             }
         }
     }
-
 }
 

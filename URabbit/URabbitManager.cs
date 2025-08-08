@@ -14,8 +14,10 @@ namespace URabbit
     ///}
     /// </summary>
 
-public class URabbitManager : IURabbitManager, IAsyncUrabbitManager
+    public class URabbitManager : IURabbitManager, IAsyncUrabbitManager
     {
+
+        public static readonly string _dlqName = "DLQ";
         private readonly ConnectionFactory _factory;
         private RabbitMQ.Client.IConnection _connection;
 
@@ -71,7 +73,7 @@ public class URabbitManager : IURabbitManager, IAsyncUrabbitManager
 
         public async Task<IChannel> CreateAsyncChannel()
         {
-            return  await GetConnection().CreateChannelAsync();
+            return await GetConnection().CreateChannelAsync();
         }
 
         public void Dispose()

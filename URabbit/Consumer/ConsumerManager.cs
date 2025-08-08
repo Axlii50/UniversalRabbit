@@ -1,4 +1,5 @@
-﻿using RabbitMQ.Client.Events;
+﻿using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -25,10 +26,10 @@ namespace URabbit.Consumer
 
             consumer.ReceivedAsync += async (model, ea) =>
             {
+                var body = ea.Body.ToArray();
+                var json = Encoding.UTF8.GetString(body);
                 try
                 {
-                    var body = ea.Body.ToArray();
-                    var json = Encoding.UTF8.GetString(body);
                     var message = JsonSerializer.Deserialize<T>(json);
 
                     if (message != null)
@@ -38,8 +39,27 @@ namespace URabbit.Consumer
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Rabbit] Error processing message: {ex.Message}");
-                    await channel.BasicNackAsync(ea.DeliveryTag, false, requeue: false);
+                    Console.WriteLine($"[Rabbit] Nie udało się przetworzyć wiadomości po wszystkich próbach: {ex.Message}");
+
+                    var props = new BasicProperties();
+                    props.Headers = new Dictionary<string, object>
+                    {
+                        { "ErrorType", ex.GetType().Name },
+                        { "ErrorMessage", ex.Message },
+                        { "StackTrace", ex.StackTrace }
+                    };
+
+                    // Wysyłka do DLQ
+                    await channel.BasicPublishAsync(
+                        exchange: string.Empty,
+                        routingKey: URabbitManager._dlqName,
+                        basicProperties: props,
+                        body: body,
+                        mandatory: true
+                    );
+
+                    // Ackujemy oryginalną wiadomość, żeby nie blokowała kolejki
+                    await channel.BasicAckAsync(ea.DeliveryTag, false);
                 }
             };
 

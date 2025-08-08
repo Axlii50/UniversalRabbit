@@ -25,8 +25,7 @@ namespace URabbit.Consumer
 
             // Retry tylko dla wybranych wyjątków
             _retryPolicy = Policy
-                .Handle<TimeoutException>()
-                .Or<HttpRequestException>()
+                .Handle<Exception>(ex => _errorHandler.ShouldRetry(ex))
                 .WaitAndRetryAsync(
                     retryCount: 10,
                     sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)),
@@ -48,6 +47,7 @@ namespace URabbit.Consumer
             {
                 var body = ea.Body.ToArray();
                 var json = Encoding.UTF8.GetString(body);
+
                 try
                 {
                     var message = JsonSerializer.Deserialize<T>(json);
@@ -55,28 +55,17 @@ namespace URabbit.Consumer
                     if (message == null)
                         throw new JsonException("Nie można zdeserializować wiadomości.");
 
-                    try
+                    await _retryPolicy.ExecuteAsync(async () =>
                     {
-                        // Retry policy tylko na TimeoutException i HttpRequestException
-                        await _retryPolicy.ExecuteAsync(async () =>
-                        {
-                            await onMessageReceived(message);
-                        });
+                        await onMessageReceived(message);
+                    });
 
-                        await channel.BasicAckAsync(ea.DeliveryTag, false);
-                    }
-                    catch (Exception ex) when (ex is TimeoutException || ex is HttpRequestException)
-                    {
-                        // Po 10 próbach Polly rzuci ten wyjątek dalej
-                        Console.WriteLine($"[Rabbit] Po 10 próbach nadal błąd: {ex.Message}");
-                        await channel.BasicNackAsync(ea.DeliveryTag, false, requeue: false); // wrzucamy do DLQ
-                    }
+                    await channel.BasicAckAsync(ea.DeliveryTag, false);
                 }
                 catch (Exception ex)
                 {
-                    // Inne błędy od razu idą do DLQ
-                    Console.WriteLine($"[Rabbit] Błąd krytyczny, wysyłam od razu do DLQ: {ex.Message}");
-                    await channel.BasicNackAsync(ea.DeliveryTag, false, requeue: false);
+                    Console.WriteLine($"[Rabbit] Błąd podczas przetwarzania: {ex.Message}");
+                    await channel.BasicNackAsync(ea.DeliveryTag, false, requeue: false); // zawsze DLQ
                 }
             };
 

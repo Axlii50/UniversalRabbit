@@ -11,6 +11,23 @@ namespace RabbitInstaller
             {
                 Console.WriteLine("=== Instalator RabbitMQ + Erlang ===");
 
+                Console.Write("Czy uruchomić tylko diagnostykę (bez instalacji)? (true/false) [false]: ");
+                string consoleDecision = Console.ReadLine();
+                bool OnlyDiagnostic = bool.Parse(consoleDecision == string.Empty ? "false" : consoleDecision);
+                
+                if (OnlyDiagnostic && CheckRabbitInstalled())
+                {
+                    Console.WriteLine("=== Uruchamianie diagnostyki RabbitMQ ===");
+                    RabbitDiagnosticsWrapper.TestRabbitDiagnostics().Wait();
+                    RabbitTester.TestRabbitAsync().Wait();
+                    return;
+                }
+                else if(OnlyDiagnostic && !CheckRabbitInstalled())
+                {
+                    Console.WriteLine("Nie znaleziono RabbitMQ. Wymagana instalacja by dokonać diagnostyki");
+                    return;
+                }
+
                 string tempFolder = Path.Combine(Path.GetTempPath(), "RabbitInstall");
                 Directory.CreateDirectory(tempFolder);
 
@@ -77,6 +94,7 @@ namespace RabbitInstaller
 
                 Console.WriteLine("=== Czyszczenie plików zakończone ===");
 
+                RabbitDiagnosticsWrapper.TestRabbitDiagnostics().Wait();
                 RabbitTester.TestRabbitAsync().Wait();
             }
             catch(Exception ex)

@@ -1,43 +1,26 @@
 ﻿using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Polly;
-using Polly.Retry;
-using URabbit.ErrorHandling;
 
 namespace URabbit.Consumer
 {
     public class ConsumerManager : IConsumerManager
     {
         private readonly IURabbitManager _rabbitManager;
-        private readonly AsyncRetryPolicy _retryPolicy;
-        private readonly IMessageErrorHandler _errorHandler;
+        private readonly ConcurrentDictionary<string, IChannel> _channels = new ConcurrentDictionary<string, IChannel>();
 
         public ConsumerManager(IURabbitManager rabbitManager)
         {
             _rabbitManager = rabbitManager;
-
-            // Retry tylko dla wybranych wyjątków
-            _retryPolicy = Policy
-                .Handle<Exception>(ex => _errorHandler.ShouldRetry(ex))
-                .WaitAndRetryAsync(
-                    retryCount: 10,
-                    sleepDurationProvider: attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)),
-                    onRetry: (exception, timespan, attempt, context) =>
-                    {
-                        Console.WriteLine($"[Rabbit] Próba {attempt} po błędzie {exception.GetType().Name}: {exception.Message}");
-                    });
-
-            _errorHandler = new RetryOnTimeoutHandler();
         }
 
-        public void Subscribe<T>(string queueName, Func<T, Task> onMessageReceived)
+        public string Subscribe<T>(string queueName, Func<T, Task> onMessageReceived)
         {
             var channel = _rabbitManager.CreateChannel();
 
@@ -47,36 +30,64 @@ namespace URabbit.Consumer
             {
                 var body = ea.Body.ToArray();
                 var json = Encoding.UTF8.GetString(body);
-
                 try
                 {
                     var message = JsonSerializer.Deserialize<T>(json);
 
-                    if (message == null)
-                        throw new JsonException("Nie można zdeserializować wiadomości.");
-
-                    await _retryPolicy.ExecuteAsync(async () =>
-                    {
+                    if (message != null)
                         await onMessageReceived(message);
-                    });
 
                     await channel.BasicAckAsync(ea.DeliveryTag, false);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Rabbit] Błąd podczas przetwarzania: {ex.Message}");
-                    await channel.BasicNackAsync(ea.DeliveryTag, false, requeue: false); // zawsze DLQ
+                    Console.WriteLine($"[Rabbit] Nie udało się przetworzyć wiadomości po wszystkich próbach: {ex.Message}");
+
+                    var props = new BasicProperties();
+                    props.Headers = new Dictionary<string, object>
+                    {
+                        { "ErrorType", ex.GetType().Name },
+                        { "ErrorMessage", ex.Message },
+                        { "StackTrace", ex.StackTrace }
+                    };
+
+                    // Wysyłka do DLQ
+                    await channel.BasicPublishAsync(
+                        exchange: string.Empty,
+                        routingKey: URabbitManager._dlqName,
+                        basicProperties: props,
+                        body: body,
+                        mandatory: true
+                    );
+
+                    // Ackujemy oryginalną wiadomość, żeby nie blokowała kolejki
+                    await channel.BasicAckAsync(ea.DeliveryTag, false);
                 }
             };
+
+            var consumerTag = Guid.NewGuid().ToString();
+            _channels[consumerTag] = channel;
 
             _ = channel.BasicConsumeAsync(
                 queue: queueName,
                 autoAck: false,
-                consumerTag: Guid.NewGuid().ToString(),
+                consumerTag: consumerTag,
                 noLocal: true,
                 exclusive: true,
                 arguments: null,
                 consumer: consumer).Result;
+
+            return consumerTag;
+        }
+
+        public async Task Unsubscribe(string consumerTag)
+        {
+            if (_channels.TryRemove(consumerTag, out var channel))
+            {
+                await channel.BasicCancelAsync(consumerTag);
+                await channel.CloseAsync();
+                channel.Dispose();
+            }
         }
     }
 }

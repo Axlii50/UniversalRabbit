@@ -5,6 +5,6 @@ namespace URabbit.Consumer
 {
     public interface IConsumerManager
     {
-        void Subscribe<T>(string queueName, Func<T, Task> onMessageReceived);
+        string Subscribe<T>(string queueName, Func<T, Task> onMessageReceived);
     }
 }

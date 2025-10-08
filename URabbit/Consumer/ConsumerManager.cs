@@ -20,7 +20,7 @@ namespace URabbit.Consumer
             _rabbitManager = rabbitManager;
         }
 
-        public string Subscribe<T>(string queueName, Func<T, Task> onMessageReceived)
+        public string Subscribe<T>(Func<T, Task> onMessageReceived)
         {
             var channel = _rabbitManager.CreateChannel();
 
@@ -53,7 +53,7 @@ namespace URabbit.Consumer
 
                     // Wysyłka do DLQ
                     await channel.BasicPublishAsync(
-                        exchange: string.Empty,
+                        exchange: typeof(T).Name,
                         routingKey: URabbitManager._dlqName,
                         basicProperties: props,
                         body: body,
@@ -69,7 +69,7 @@ namespace URabbit.Consumer
             _channels[consumerTag] = channel;
 
             _ = channel.BasicConsumeAsync(
-                queue: queueName,
+                queue: typeof(T).Name,
                 autoAck: false,
                 consumerTag: consumerTag,
                 noLocal: true,

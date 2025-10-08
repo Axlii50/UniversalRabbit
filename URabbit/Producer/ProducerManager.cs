@@ -25,7 +25,7 @@ namespace URabbit.Producer
         {
             using (var channel = _rabbitManager.CreateChannel())
             {
-                channel.ExchangeDeclareAsync(exchange: string.Empty, type: ExchangeType.Direct, durable: true).Wait();
+                channel.ExchangeDeclareAsync(exchange: typeof(T).Name, type: ExchangeType.Direct, durable: true).Wait();
 
                 var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
 
@@ -41,7 +41,7 @@ namespace URabbit.Producer
         {
             using (var channel = await _asyncRabbitManager.CreateAsyncChannel())
             {
-                channel.ExchangeDeclareAsync(exchange: string.Empty, type: ExchangeType.Direct, durable: true).Wait();
+                channel.ExchangeDeclareAsync(exchange: typeof(T).Name, type: ExchangeType.Direct, durable: true).Wait();
 
                 var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
 

@@ -1,6 +1,7 @@
 ﻿using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,13 +13,14 @@ namespace URabbit.Consumer
     public class ConsumerManager : IConsumerManager
     {
         private readonly IURabbitManager _rabbitManager;
+        private readonly ConcurrentDictionary<string, IChannel> _channels = new ConcurrentDictionary<string, IChannel>();
 
         public ConsumerManager(IURabbitManager rabbitManager)
         {
             _rabbitManager = rabbitManager;
         }
 
-        public void Subscribe<T>(string queueName, Func<T, Task> onMessageReceived)
+        public string Subscribe<T>(string queueName, Func<T, Task> onMessageReceived)
         {
             var channel = _rabbitManager.CreateChannel();
 
@@ -63,14 +65,29 @@ namespace URabbit.Consumer
                 }
             };
 
-            _= channel.BasicConsumeAsync(
+            var consumerTag = Guid.NewGuid().ToString();
+            _channels[consumerTag] = channel;
+
+            _ = channel.BasicConsumeAsync(
                 queue: queueName,
                 autoAck: false,
-                consumerTag: Guid.NewGuid().ToString(),
+                consumerTag: consumerTag,
                 noLocal: true,
                 exclusive: true,
                 arguments: null,
                 consumer: consumer).Result;
+
+            return consumerTag;
+        }
+
+        public async Task Unsubscribe(string consumerTag)
+        {
+            if (_channels.TryRemove(consumerTag, out var channel))
+            {
+                await channel.BasicCancelAsync(consumerTag);
+                await channel.CloseAsync();
+                channel.Dispose();
+            }
         }
     }
 }

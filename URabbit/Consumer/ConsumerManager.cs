@@ -89,5 +89,86 @@ namespace URabbit.Consumer
                 channel.Dispose();
             }
         }
+
+        public async Task<T> GetMessageAsync<T>()
+        {
+            var channel = _rabbitManager.CreateChannel();
+
+            try
+            {
+                var result = await channel.BasicGetAsync(typeof(T).Name, autoAck: false);
+                if (result == null)
+                    return default; // kolejka pusta
+
+                var body = result.Body.ToArray();
+                var json = Encoding.UTF8.GetString(body);
+
+                try
+                {
+                    var message = JsonSerializer.Deserialize<T>(json);
+
+                    if (message != null)
+                        await channel.BasicAckAsync(result.DeliveryTag, false);
+                    else
+                        await channel.BasicNackAsync(result.DeliveryTag, false, requeue: false);
+
+                    await channel.CloseAsync();
+
+                    return message;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Rabbit] Deserialization error: {ex.Message}");
+                    await channel.BasicNackAsync(result.DeliveryTag, false, requeue: false);
+                    return default;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Rabbit] Error reading message: {ex.Message}");
+                return default;
+            }
+            finally
+            {
+                await channel.CloseAsync();
+                channel.Dispose();
+            }
+        }
+
+
+        public async Task<T> PeekMessagesAsync<T>()
+        {
+            var channel = _rabbitManager.CreateChannel();
+
+            try
+            {
+                var result = await channel.BasicGetAsync(typeof(T).Name, autoAck: false);
+                if (result == null)
+                    return default; // kolejka pusta
+
+                var body = result.Body.ToArray();
+                var json = Encoding.UTF8.GetString(body);
+
+                var message = JsonSerializer.Deserialize<T>(json);
+                await channel.BasicNackAsync(result.DeliveryTag, false, requeue: true);
+                await channel.CloseAsync();
+                return message;
+            }
+            catch (JsonException ex)
+            {
+                Console.WriteLine($"[Rabbit] Deserialization error: {ex.Message}");
+                return default;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Rabbit] Error reading message: {ex.Message}");
+                return default;
+            }
+            finally
+            {
+                await channel.CloseAsync();
+                channel.Dispose();
+            }
+        }
     }
 }

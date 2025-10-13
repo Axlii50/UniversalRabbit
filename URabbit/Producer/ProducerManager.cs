@@ -34,6 +34,8 @@ namespace URabbit.Producer
                     routingKey: typeof(T).Name,
                     body: body
                 );
+
+                channel.CloseAsync().Wait();
             }
         }
 
@@ -50,6 +52,8 @@ namespace URabbit.Producer
                     routingKey: typeof(T).Name,
                     body: body
                 );
+
+                await channel.CloseAsync();
             }
         }
     }

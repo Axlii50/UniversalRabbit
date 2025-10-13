@@ -69,7 +69,33 @@ namespace RabbitInstaller
                 Console.WriteLine("=== Dodawania ErLang do zmiennych zakonczone ===");
 
                 // 3. Rejestracja RabbitMQ jako usługi
-                string rabbitSbin = @"C:\Program Files\RabbitMQ Server\rabbitmq_server-3.12.12\sbin";
+                string basePath = @"C:\Program Files\RabbitMQ Server";
+                string rabbitSbin = "";
+
+                // sprawdzamy, czy katalog istnieje
+                if (Directory.Exists(basePath))
+                {
+                    // pobieramy pierwszy folder zaczynający się od "rabbitmq_server-"
+                    string? rabbitFolder = Directory.GetDirectories(basePath, "rabbitmq_server-*")
+                                                   .OrderBy(f => f)  // pierwszy w kolejności alfabetycznej
+                                                   .FirstOrDefault();
+
+                    if (!string.IsNullOrEmpty(rabbitFolder))
+                    {
+                        rabbitSbin = Path.Combine(rabbitFolder, "sbin");
+                    }
+                    else
+                    {
+                        Console.WriteLine("❌ Nie znaleziono katalogu RabbitMQ Server w: " + basePath);
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("❌ Katalog bazowy nie istnieje: " + basePath);
+                }
+
+                Console.WriteLine("Ścieżka do sbin: " + rabbitSbin);
+
                 if (Directory.Exists(rabbitSbin))
                 {
                     Console.WriteLine("[INFO] Rejestruję usługę RabbitMQ...");

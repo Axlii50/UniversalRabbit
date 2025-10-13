@@ -7,5 +7,7 @@ namespace URabbit.Consumer
     {
         string Subscribe<T>(Func<T, Task> onMessageReceived);
         Task Unsubscribe(string consumerTag);
+        Task<T> GetMessageAsync<T>();
+        Task<T> PeekMessagesAsync<T>();
     }
 }

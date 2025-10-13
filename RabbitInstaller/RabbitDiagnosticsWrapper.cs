@@ -9,9 +9,36 @@ namespace RabbitInstaller
         /// </summary>
         public static async Task<(int ExitCode, string Output)> RunDiagnosticAsync(string arguments, int timeoutMs = 5000)
         {
+            string basePath = @"C:\Program Files\RabbitMQ Server";
+            string rabbitSbin = "";
+
+            // sprawdzamy, czy katalog istnieje
+            if (Directory.Exists(basePath))
+            {
+                // pobieramy pierwszy folder zaczynający się od "rabbitmq_server-"
+                string? rabbitFolder = Directory.GetDirectories(basePath, "rabbitmq_server-*")
+                                               .OrderBy(f => f)  // pierwszy w kolejności alfabetycznej
+                                               .FirstOrDefault();
+
+                if (!string.IsNullOrEmpty(rabbitFolder))
+                {
+                    rabbitSbin = Path.Combine(rabbitFolder, "sbin");
+                }
+                else
+                {
+                    Console.WriteLine("❌ Nie znaleziono katalogu RabbitMQ Server w: " + basePath);
+                }
+            }
+            else
+            {
+                Console.WriteLine("❌ Katalog bazowy nie istnieje: " + basePath);
+            }
+
+            Console.WriteLine("Ścieżka do sbin: " + rabbitSbin);
+
             var psi = new ProcessStartInfo
             {
-                FileName = @"C:\Program Files\RabbitMQ Server\rabbitmq_server-3.12.12\sbin\rabbitmq-diagnostics.bat",
+                FileName = $@"{rabbitSbin}\rabbitmq-diagnostics.bat",
                 Arguments = arguments,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
